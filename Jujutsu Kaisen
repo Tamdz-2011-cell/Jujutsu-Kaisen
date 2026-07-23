@@ -1,0 +1,393 @@
+-- Kiểm tra và tải thư viện Rayfield
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local player = Players.LocalPlayer
+
+local Config = {
+	HitboxEnabled = false,
+	TeleportEnabled = false,
+	AutoClickEnabled = false,
+	AutoSkillEnabled = false,
+	EspEnabled = false,
+	SelectedTarget = "Tất cả (Gần nhất)"
+}
+
+local activeHitboxes = {}
+local espDrawings = {}
+local previousTarget = nil
+
+-- ==================== HÀM TẠO THÔNG BÁO GÓC PHẢI ====================
+local function showKillNotification(targetName)
+	Rayfield:Notify({
+		Title = "HẠ GỤC THÀNH CÔNG!",
+		Content = "Đã hạ gục người chơi " .. targetName .. " lên bảng đếm số!",
+		Duration = 3,
+		Image = 4483362458,
+	})
+end
+
+local Window = Rayfield:CreateWindow({
+	Name = "JJS Menu - Kill Feed & Domain Priority",
+	LoadingTitle = "Đang tải hệ thống...",
+	LoadingSubtitle = "by Tamdz",
+	ConfigurationSaving = { Enabled = false },
+	KeySystem = false,
+})
+
+local MainTab = Window:CreateTab("Tính năng chính", 4483362458)
+local TargetTab = Window:CreateTab("Chọn Mục tiêu & ESP", 4483362458)
+
+-- ==================== HÀM HITBOX ====================
+local function removeAllHitboxes()
+	for _, data in pairs(activeHitboxes) do
+		if data and data.Hitbox then data.Hitbox:Destroy() end
+	end
+	activeHitboxes = {}
+end
+
+local function applyHitboxToEnemy(otherPlayer)
+	if otherPlayer == player then return end
+	local function setup(character)
+		if not Config.HitboxEnabled then return end
+		local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 5)
+		if not humanoidRootPart or character:FindFirstChild("EnemyBigHitbox") then return end
+
+		local bigHitbox = Instance.new("Part")
+		bigHitbox.Name = "EnemyBigHitbox"
+		bigHitbox.Size = humanoidRootPart.Size * 50
+		bigHitbox.CFrame = humanoidRootPart.CFrame
+		bigHitbox.Transparency = 0.9
+		bigHitbox.CanCollide = false
+		bigHitbox.CanTouch = true
+		bigHitbox.Massless = true
+		bigHitbox.Parent = character
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = humanoidRootPart
+		weld.Part1 = bigHitbox
+		weld.Parent = bigHitbox
+
+		activeHitboxes[otherPlayer] = {Hitbox = bigHitbox, Char = character}
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			local diedConn
+			diedConn = humanoid.Died:Connect(function()
+				if bigHitbox then bigHitbox:Destroy() end
+				if diedConn then diedConn:Disconnect() end
+			end)
+		end
+	end
+	if otherPlayer.Character then setup(otherPlayer.Character) end
+	otherPlayer.CharacterAdded:Connect(setup)
+end
+
+-- ==================== HÀM LẤY DANH SÁCH PLAYER ====================
+local function getPlayerList()
+	local list = {"Tất cả (Gần nhất)", "🎯 Thấp máu nhất (Ưu tiên)"}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			local identifier = p.Name .. " (" .. p.DisplayName .. ")"
+			table.insert(list, identifier)
+		end
+	end
+	return list
+end
+
+local targetDropdown
+
+local function isSelfInDomain(char)
+	if not char then return false end
+	if char:FindFirstChild("Stun") or char:FindFirstChild("Action") then
+		return true
+	end
+	return false
+end
+
+local function getTarget()
+	local myChar = player.Character
+	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+	local myHRP = myChar.HumanoidRootPart
+
+	local inDomain = isSelfInDomain(myChar)
+
+	if inDomain then
+		local closestInDomain = nil
+		local minDistance = 60
+		
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
+				if enemyHum and enemyHum.Health > 0 then
+					local dist = (myHRP.Position - p.Character.HumanoidRootPart.Position).Magnitude
+					if dist < minDistance then
+						minDistance = dist
+						closestInDomain = p
+					end
+				end
+			end
+		end
+		if closestInDomain then return closestInDomain else return nil end
+	end
+
+	if Config.SelectedTarget == "🎯 Thấp máu nhất (Ưu tiên)" then
+		local lowestHpPlayer = nil
+		local minHealth = math.huge
+		
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				local hum = p.Character:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 and hum.Health < minHealth then
+					minHealth = hum.Health
+					lowestHpPlayer = p
+				end
+			end
+		end
+		return lowestHpPlayer
+	elseif Config.SelectedTarget ~= "Tất cả (Gần nhất)" then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local identifier = p.Name .. " (" .. p.DisplayName .. ")"
+			if identifier == Config.SelectedTarget or p.Name == Config.SelectedTarget then
+				if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+					local hum = p.Character:FindFirstChildOfClass("Humanoid")
+					if hum and hum.Health > 0 then return p end
+				end
+			end
+		end
+		return nil
+	end
+	
+	local closestPlayer = nil
+	local shortestDistance = math.huge
+	
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
+			if enemyHum and enemyHum.Health > 0 then
+				local dist = (myHRP.Position - p.Character.HumanoidRootPart.Position).Magnitude
+				if dist < shortestDistance then
+					shortestDistance = dist
+					closestPlayer = p
+				end
+			end
+		end
+	end
+	return closestPlayer
+end
+
+local function pressKey(keyCode)
+	pcall(function()
+		VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+		task.wait(0.05)
+		VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+	end)
+end
+
+-- ==================== GIAO DIỆN RAYFIELD ====================
+
+targetDropdown = TargetTab:CreateDropdown({
+	Name = "Chọn Mục Tiêu / Săn Máu Thấp",
+	Options = getPlayerList(),
+	CurrentOption = "Tất cả (Gần nhất)",
+	Flag = "TargetDropdown",
+	Callback = function(Option)
+		Config.SelectedTarget = Option
+	end,
+})
+
+TargetTab:CreateButton({
+	Name = "Làm mới danh sách Player",
+	Callback = function()
+		targetDropdown:Refresh(getPlayerList(), true)
+	end,
+})
+
+TargetTab:CreateToggle({
+	Name = "Bật ESP (Gọn gàng + Tên + Máu)",
+	CurrentValue = false,
+	Flag = "EspToggle",
+	Callback = function(Value)
+		Config.EspEnabled = Value
+		if not Value then
+			for _, esp in pairs(espDrawings) do
+				if esp.Box then esp.Box:Remove() end
+				if esp.NameText then esp.NameText:Remove() end
+			end
+			espDrawings = {}
+		end
+	end,
+})
+
+MainTab:CreateToggle({
+	Name = "Hitbox 50x Kẻ Địch",
+	CurrentValue = false,
+	Flag = "HitboxToggle",
+	Callback = function(Value)
+		Config.HitboxEnabled = Value
+		if Value then
+			for _, p in ipairs(Players:GetPlayers()) do applyHitboxToEnemy(p) end
+		else
+			removeAllHitboxes()
+		end
+	end,
+})
+
+MainTab:CreateToggle({
+	Name = "Auto Teleport (Bám sát mục tiêu)",
+	CurrentValue = false,
+	Flag = "TpToggle",
+	Callback = function(Value) Config.TeleportEnabled = Value end,
+})
+
+MainTab:CreateToggle({
+	Name = "Auto Đánh Thường (M1 Click)",
+	CurrentValue = false,
+	Flag = "AutoClickToggle",
+	Callback = function(Value) Config.AutoClickEnabled = Value end,
+})
+
+MainTab:CreateToggle({
+	Name = "Auto Dùng Skill (1, 2, 3, 4)",
+	CurrentValue = false,
+	Flag = "AutoSkillToggle",
+	Callback = function(Value) Config.AutoSkillEnabled = Value end,
+})
+
+-- ==================== VÒNG LẶP XỬ LÝ CHÍNH ====================
+
+local skillTick = 0
+
+RunService.RenderStepped:Connect(function()
+	if Config.HitboxEnabled then
+		for otherPlayer, data in pairs(activeHitboxes) do
+			if data.Hitbox and data.Char and data.Char:FindFirstChild("HumanoidRootPart") then
+				data.Hitbox.CFrame = data.Char.HumanoidRootPart.CFrame
+			else
+				activeHitboxes[otherPlayer] = nil
+			end
+		end
+	end
+
+	-- Xử lý ESP Gọn Gàng
+	if Config.EspEnabled then
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+				local char = p.Character
+				local hrp = char.HumanoidRootPart
+				local head = char:FindFirstChild("Head")
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				
+				if hum and hum.Health > 0 and head then
+					local camera = workspace.CurrentCamera
+					local headPos, headOnScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+					local rootPos, rootOnScreen = camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+					
+					if not espDrawings[p] then
+						local box = Drawing.new("Square")
+						box.Visible = false
+						box.Color = Color3.fromRGB(255, 60, 60)
+						box.Thickness = 1
+						box.Filled = false
+						
+						local nameText = Drawing.new("Text")
+						nameText.Visible = false
+						nameText.Color = Color3.fromRGB(255, 255, 255)
+						nameText.Size = 13
+						nameText.Center = true
+						nameText.Outline = true
+						
+						espDrawings[p] = {Box = box, NameText = nameText}
+					end
+					
+					local esp = espDrawings[p]
+					if headOnScreen and rootOnScreen then
+						local height = math.abs(rootPos.Y - headPos.Y)
+						local width = height / 2
+						
+						esp.Box.Visible = true
+						esp.Box.Size = Vector2.new(width, height)
+						esp.Box.Position = Vector2.new(headPos.X - width / 2, headPos.Y)
+						
+						esp.NameText.Visible = true
+						esp.NameText.Text = p.Name .. " | " .. math.floor(hum.Health) .. "HP"
+						esp.NameText.Position = Vector2.new(headPos.X, headPos.Y - 18)
+					else
+						esp.Box.Visible = false
+						esp.NameText.Visible = false
+					end
+				else
+					if espDrawings[p] then
+						espDrawings[p].Box.Visible = false
+						esp.NameText.Visible = false
+					end
+				end
+			end
+		end
+	else
+		-- Ẩn hết ESP nếu tắt toggle
+		for _, esp in pairs(espDrawings) do
+			if esp.Box then esp.Box.Visible = false end
+			if esp.NameText then esp.NameText.Visible = false end
+		end
+	end
+
+	-- Kiểm tra theo dõi mục tiêu để bắn thông báo hạ gục
+	local target = getTarget()
+	
+	if previousTarget and previousTarget.Character then
+		local hum = previousTarget.Character:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then
+			showKillNotification(previousTarget.Name)
+			previousTarget = nil
+		elseif target ~= previousTarget and target ~= nil then
+			if hum.Health <= 5 then
+				showKillNotification(previousTarget.Name)
+			end
+			previousTarget = target
+		end
+	else
+		previousTarget = target
+	end
+
+	-- Xử lý dịch chuyển và tấn công mục tiêu
+	local myChar = player.Character
+	if target and target.Character and myChar then
+		local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+		
+		if targetHRP and myHRP then
+			if Config.TeleportEnabled then
+				myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 1.5)
+			end
+
+			myHRP.CFrame = CFrame.new(myHRP.Position, targetHRP.Position)
+
+			if Config.AutoClickEnabled then
+				pcall(function()
+					VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+					task.wait(0.01)
+					VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+				end)
+			end
+
+			if Config.AutoSkillEnabled then
+				skillTick = skillTick + 1
+				if skillTick > 40 then
+					skillTick = 0
+					local skills = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
+					local randomSkill = skills[math.random(1, #skills)]
+					pressKey(randomSkill)
+				end
+			end
+		end
+	end
+end)
+
+Players.PlayerAdded:Connect(function(p)
+	if Config.HitboxEnabled then applyHitboxToEnemy(p) end
+end)
+
+Rayfield:LoadConfiguration()

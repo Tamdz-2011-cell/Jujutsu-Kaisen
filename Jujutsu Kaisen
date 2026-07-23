@@ -23,7 +23,7 @@ local previousTarget = nil
 local function showKillNotification(targetName)
 	Rayfield:Notify({
 		Title = "HẠ GỤC THÀNH CÔNG!",
-		Content = "Đã hạ gục người chơi " .. targetName .. " lên bảng đếm số!",
+		Content = "Đã hạ gục " .. targetName .. " lên bảng đếm số!",
 		Duration = 3,
 		Image = 4483362458,
 	})
@@ -99,14 +99,17 @@ end
 
 local targetDropdown
 
+-- ==================== HÀM KIỂM TRA LÃNH ĐỊA AN TOÀN ====================
 local function isSelfInDomain(char)
 	if not char then return false end
-	if char:FindFirstChild("Stun") or char:FindFirstChild("Action") then
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if humanoid and (char:FindFirstChild("Stun") or char:FindFirstChild("Action")) then
 		return true
 	end
 	return false
 end
 
+-- ==================== HÀM TÌM MỤC TIÊU ====================
 local function getTarget()
 	local myChar = player.Character
 	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
@@ -130,8 +133,15 @@ local function getTarget()
 				end
 			end
 		end
-		if closestInDomain then return closestInDomain else return nil end
+		
+		if closestInDomain then 
+			return closestInDomain 
+		else 
+			goto normalSearch
+		end
 	end
+
+	::normalSearch::
 
 	if Config.SelectedTarget == "🎯 Thấp máu nhất (Ưu tiên)" then
 		local lowestHpPlayer = nil
@@ -146,7 +156,7 @@ local function getTarget()
 				end
 			end
 		end
-		return lowestHpPlayer
+		if lowestHpPlayer then return lowestHpPlayer end
 	elseif Config.SelectedTarget ~= "Tất cả (Gần nhất)" then
 		for _, p in ipairs(Players:GetPlayers()) do
 			local identifier = p.Name .. " (" .. p.DisplayName .. ")"
@@ -157,7 +167,6 @@ local function getTarget()
 				end
 			end
 		end
-		return nil
 	end
 	
 	local closestPlayer = nil
@@ -321,13 +330,12 @@ RunService.RenderStepped:Connect(function()
 				else
 					if espDrawings[p] then
 						espDrawings[p].Box.Visible = false
-						esp.NameText.Visible = false
+						espDrawings[p].NameText.Visible = false
 					end
 				end
 			end
 		end
 	else
-		-- Ẩn hết ESP nếu tắt toggle
 		for _, esp in pairs(espDrawings) do
 			if esp.Box then esp.Box.Visible = false end
 			if esp.NameText then esp.NameText.Visible = false end
@@ -360,7 +368,12 @@ RunService.RenderStepped:Connect(function()
 		
 		if targetHRP and myHRP then
 			if Config.TeleportEnabled then
-				myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 1.5)
+				pcall(function()
+					myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 1.5)
+					if myHRP:IsA("BasePart") then
+						myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+					end
+				end)
 			end
 
 			myHRP.CFrame = CFrame.new(myHRP.Position, targetHRP.Position)

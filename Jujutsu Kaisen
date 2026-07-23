@@ -1,5 +1,12 @@
--- Kiểm tra và tải thư viện Rayfield
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Kiểm tra và tải thư viện Rayfield an toàn
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not success or not Rayfield then
+    warn("Không thể tải thư viện Rayfield! Hãy kiểm tra lại executor của bạn.")
+    return
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,34 +18,33 @@ local Config = {
 	TeleportEnabled = false,
 	AutoClickEnabled = false,
 	AutoSkillEnabled = false,
-	EspEnabled = false,
 	SelectedTarget = "Tất cả (Gần nhất)"
 }
 
 local activeHitboxes = {}
-local espDrawings = {}
 local previousTarget = nil
 
--- ==================== HÀM TẠO THÔNG BÁO GÓC PHẢI ====================
 local function showKillNotification(targetName)
-	Rayfield:Notify({
-		Title = "HẠ GỤC THÀNH CÔNG!",
-		Content = "Đã hạ gục " .. targetName .. " lên bảng đếm số!",
-		Duration = 3,
-		Image = 4483362458,
-	})
+	pcall(function()
+		Rayfield:Notify({
+			Title = "HẠ GỤC THÀNH CÔNG!",
+			Content = "Bạn đã tiễn " .. targetName .. " lên bảng đếm số!",
+			Duration = 3,
+			Image = 4483362458,
+		})
+	end)
 end
 
 local Window = Rayfield:CreateWindow({
-	Name = "JJS Menu - Kill Feed & Domain Priority",
+	Name = "JJS Menu - Safe Version",
 	LoadingTitle = "Đang tải hệ thống...",
-	LoadingSubtitle = "by Tamdz",
+	LoadingSubtitle = "Nguồn Tamdz",
 	ConfigurationSaving = { Enabled = false },
 	KeySystem = false,
 })
 
 local MainTab = Window:CreateTab("Tính năng chính", 4483362458)
-local TargetTab = Window:CreateTab("Chọn Mục tiêu & ESP", 4483362458)
+local TargetTab = Window:CreateTab("Chọn Mục tiêu", 4483362458)
 
 -- ==================== HÀM HITBOX ====================
 local function removeAllHitboxes()
@@ -71,15 +77,6 @@ local function applyHitboxToEnemy(otherPlayer)
 		weld.Parent = bigHitbox
 
 		activeHitboxes[otherPlayer] = {Hitbox = bigHitbox, Char = character}
-
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			local diedConn
-			diedConn = humanoid.Died:Connect(function()
-				if bigHitbox then bigHitbox:Destroy() end
-				if diedConn then diedConn:Disconnect() end
-			end)
-		end
 	end
 	if otherPlayer.Character then setup(otherPlayer.Character) end
 	otherPlayer.CharacterAdded:Connect(setup)
@@ -90,8 +87,7 @@ local function getPlayerList()
 	local list = {"Tất cả (Gần nhất)", "🎯 Thấp máu nhất (Ưu tiên)"}
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player then
-			local identifier = p.Name .. " (" .. p.DisplayName .. ")"
-			table.insert(list, identifier)
+			table.insert(list, p.Name .. " (" .. p.DisplayName .. ")")
 		end
 	end
 	return list
@@ -99,49 +95,10 @@ end
 
 local targetDropdown
 
--- ==================== HÀM KIỂM TRA LÃNH ĐỊA AN TOÀN ====================
-local function isSelfInDomain(char)
-	if not char then return false end
-	local humanoid = char:FindFirstChildOfClass("Humanoid")
-	if humanoid and (char:FindFirstChild("Stun") or char:FindFirstChild("Action")) then
-		return true
-	end
-	return false
-end
-
--- ==================== HÀM TÌM MỤC TIÊU ====================
 local function getTarget()
 	local myChar = player.Character
 	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
 	local myHRP = myChar.HumanoidRootPart
-
-	local inDomain = isSelfInDomain(myChar)
-
-	if inDomain then
-		local closestInDomain = nil
-		local minDistance = 60
-		
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-				local enemyHum = p.Character:FindFirstChildOfClass("Humanoid")
-				if enemyHum and enemyHum.Health > 0 then
-					local dist = (myHRP.Position - p.Character.HumanoidRootPart.Position).Magnitude
-					if dist < minDistance then
-						minDistance = dist
-						closestInDomain = p
-					end
-				end
-			end
-		end
-		
-		if closestInDomain then 
-			return closestInDomain 
-		else 
-			goto normalSearch
-		end
-	end
-
-	::normalSearch::
 
 	if Config.SelectedTarget == "🎯 Thấp máu nhất (Ưu tiên)" then
 		local lowestHpPlayer = nil
@@ -214,22 +171,6 @@ TargetTab:CreateButton({
 	end,
 })
 
-TargetTab:CreateToggle({
-	Name = "Bật ESP (Gọn gàng + Tên + Máu)",
-	CurrentValue = false,
-	Flag = "EspToggle",
-	Callback = function(Value)
-		Config.EspEnabled = Value
-		if not Value then
-			for _, esp in pairs(espDrawings) do
-				if esp.Box then esp.Box:Remove() end
-				if esp.NameText then esp.NameText:Remove() end
-			end
-			espDrawings = {}
-		end
-	end,
-})
-
 MainTab:CreateToggle({
 	Name = "Hitbox 50x Kẻ Địch",
 	CurrentValue = false,
@@ -270,133 +211,66 @@ MainTab:CreateToggle({
 local skillTick = 0
 
 RunService.RenderStepped:Connect(function()
-	if Config.HitboxEnabled then
-		for otherPlayer, data in pairs(activeHitboxes) do
-			if data.Hitbox and data.Char and data.Char:FindFirstChild("HumanoidRootPart") then
-				data.Hitbox.CFrame = data.Char.HumanoidRootPart.CFrame
-			else
-				activeHitboxes[otherPlayer] = nil
-			end
-		end
-	end
-
-	-- Xử lý ESP Gọn Gàng
-	if Config.EspEnabled then
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-				local char = p.Character
-				local hrp = char.HumanoidRootPart
-				local head = char:FindFirstChild("Head")
-				local hum = char:FindFirstChildOfClass("Humanoid")
-				
-				if hum and hum.Health > 0 and head then
-					local camera = workspace.CurrentCamera
-					local headPos, headOnScreen = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-					local rootPos, rootOnScreen = camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-					
-					if not espDrawings[p] then
-						local box = Drawing.new("Square")
-						box.Visible = false
-						box.Color = Color3.fromRGB(255, 60, 60)
-						box.Thickness = 1
-						box.Filled = false
-						
-						local nameText = Drawing.new("Text")
-						nameText.Visible = false
-						nameText.Color = Color3.fromRGB(255, 255, 255)
-						nameText.Size = 13
-						nameText.Center = true
-						nameText.Outline = true
-						
-						espDrawings[p] = {Box = box, NameText = nameText}
-					end
-					
-					local esp = espDrawings[p]
-					if headOnScreen and rootOnScreen then
-						local height = math.abs(rootPos.Y - headPos.Y)
-						local width = height / 2
-						
-						esp.Box.Visible = true
-						esp.Box.Size = Vector2.new(width, height)
-						esp.Box.Position = Vector2.new(headPos.X - width / 2, headPos.Y)
-						
-						esp.NameText.Visible = true
-						esp.NameText.Text = p.Name .. " | " .. math.floor(hum.Health) .. "HP"
-						esp.NameText.Position = Vector2.new(headPos.X, headPos.Y - 18)
-					else
-						esp.Box.Visible = false
-						esp.NameText.Visible = false
-					end
+	pcall(function()
+		if Config.HitboxEnabled then
+			for otherPlayer, data in pairs(activeHitboxes) do
+				if data.Hitbox and data.Char and data.Char:FindFirstChild("HumanoidRootPart") then
+					data.Hitbox.CFrame = data.Char.HumanoidRootPart.CFrame
 				else
-					if espDrawings[p] then
-						espDrawings[p].Box.Visible = false
-						espDrawings[p].NameText.Visible = false
-					end
+					activeHitboxes[otherPlayer] = nil
 				end
 			end
 		end
-	else
-		for _, esp in pairs(espDrawings) do
-			if esp.Box then esp.Box.Visible = false end
-			if esp.NameText then esp.NameText.Visible = false end
-		end
-	end
 
-	-- Kiểm tra theo dõi mục tiêu để bắn thông báo hạ gục
-	local target = getTarget()
-	
-	if previousTarget and previousTarget.Character then
-		local hum = previousTarget.Character:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.Health <= 0 then
-			showKillNotification(previousTarget.Name)
-			previousTarget = nil
-		elseif target ~= previousTarget and target ~= nil then
-			if hum.Health <= 5 then
+		local target = getTarget()
+		
+		if previousTarget and previousTarget.Character then
+			local hum = previousTarget.Character:FindFirstChildOfClass("Humanoid")
+			if not hum or hum.Health <= 0 then
 				showKillNotification(previousTarget.Name)
+				previousTarget = nil
+			elseif target ~= previousTarget and target ~= nil then
+				if hum.Health <= 5 then
+					showKillNotification(previousTarget.Name)
+				end
+				previousTarget = target
 			end
+		else
 			previousTarget = target
 		end
-	else
-		previousTarget = target
-	end
 
-	-- Xử lý dịch chuyển và tấn công mục tiêu
-	local myChar = player.Character
-	if target and target.Character and myChar then
-		local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
-		local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-		
-		if targetHRP and myHRP then
-			if Config.TeleportEnabled then
-				pcall(function()
+		local myChar = player.Character
+		if target and target.Character and myChar then
+			local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+			local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+			
+			if targetHRP and myHRP then
+				if Config.TeleportEnabled then
 					myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 1.5)
 					if myHRP:IsA("BasePart") then
 						myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 					end
-				end)
-			end
+				end
 
-			myHRP.CFrame = CFrame.new(myHRP.Position, targetHRP.Position)
+				myHRP.CFrame = CFrame.new(myHRP.Position, targetHRP.Position)
 
-			if Config.AutoClickEnabled then
-				pcall(function()
+				if Config.AutoClickEnabled then
 					VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
 					task.wait(0.01)
 					VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-				end)
-			end
+				end
 
-			if Config.AutoSkillEnabled then
-				skillTick = skillTick + 1
-				if skillTick > 40 then
-					skillTick = 0
-					local skills = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
-					local randomSkill = skills[math.random(1, #skills)]
-					pressKey(randomSkill)
+				if Config.AutoSkillEnabled then
+					skillTick = skillTick + 1
+					if skillTick > 40 then
+						skillTick = 0
+						local skills = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
+						pressKey(skills[math.random(1, #skills)])
+					end
 				end
 			end
 		end
-	end
+	end)
 end)
 
 Players.PlayerAdded:Connect(function(p)
